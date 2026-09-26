@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.1
+
+- `--http` advertises a static tool list and refuses `subscriptions/listen` in-band: previously a client that opened a listener parked an idle stream on a concurrency slot for its lifetime, and enough listeners could starve the server of slots. Slot accounting no longer leaks on a rejected handler either.
+- Docs: the HTTP section names the transport env var and the static tool list.
+
 ## 0.10.0
 
 - Opt-in stateless Streamable HTTP: `jev-mcp --http` (or `JEV_MCP_TRANSPORT=http`) serves MCP 2026-07-28 per request and 2025-era clients through the SDK's stateless fallback, with no sessions, on `PORT` (default 8080) at `/mcp`, with `/health`. `HOST` defaults to loopback; binding beyond it is explicit. `JEV_MCP_AUTH_TOKEN` gates it with a bearer token and is required unless `HOST` is loopback; Host/Origin rebinding guards answer fixed-string 403s. Concurrent requests are capped at `JEV_MCP_MAX_CONCURRENCY` (default 16) with `429` backpressure, and a cancelled request aborts its in-flight regex worker and Jev calls. Stdio stays the default. Via [#37](https://github.com/jkudish/jev-mcp/pull/37) by shivasymbl.
