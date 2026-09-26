@@ -124,6 +124,34 @@ test("--http defaults to a loopback bind when HOST is unset", async () => {
   }
 });
 
+test("--http advertises a static tool list and refuses subscriptions/listen without holding a slot", async () => {
+  const { url, stop } = await startHttp({ JEV_MCP_MAX_CONCURRENCY: "1", JEV_MCP_AUTH_TOKEN: TOKEN });
+  try {
+    const client = new Client(
+      { name: "listen-test", version: "1.0.0" },
+      { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+    );
+    await client.connect(
+      new StreamableHTTPClientTransport(url, { requestInit: { headers: { Authorization: `Bearer ${TOKEN}` } } }),
+    );
+    try {
+      // A static tool list advertises no listChanged, so capable clients have
+      // no reason to open a listener; an explicit one is refused in-band...
+      assert.equal(client.getServerCapabilities()?.tools?.listChanged, false);
+      await assert.rejects(
+        client.listen({ notifications: { tools: true } }),
+        (error) => /subscription|limit|not/i.test(String(error?.message ?? error)),
+      );
+      // ...and the refused listener must not occupy the single concurrency slot.
+      assert.equal((await client.listTools()).tools.length, 11);
+    } finally {
+      await client.close();
+    }
+  } finally {
+    await stop();
+  }
+});
+
 test("--http sheds load with 429 past JEV_MCP_MAX_CONCURRENCY", async () => {
   const { url, stop } = await startHttp({ JEV_MCP_MAX_CONCURRENCY: "1", JEV_MCP_AUTH_TOKEN: TOKEN });
   // Hold the one permitted slot open mid-body: raw socket, headers sent, body withheld.

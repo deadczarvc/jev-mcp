@@ -92,7 +92,13 @@ const tools = {
 };
 
 export function createServer(): McpServer {
-  const server = new McpServer({ name: "jev-mcp", version: packageVersion });
+  // The tool list is static (no change notifications are ever emitted), so it
+  // advertises no listChanged capability and no client has a reason to hold a
+  // subscriptions/listen stream open, which would occupy an HTTP slot idle.
+  const server = new McpServer(
+    { name: "jev-mcp", version: packageVersion },
+    { capabilities: { tools: { listChanged: false } } },
+  );
   for (const args of toolRegistrations) (server.registerTool as (...a: Parameters<RegisterTool>) => unknown)(...args);
   return server;
 }

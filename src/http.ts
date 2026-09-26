@@ -60,9 +60,17 @@ export async function serveHttp(factory: () => McpServer, env: NodeJS.ProcessEnv
   // the server through DNS rebinding (the spec's Origin-validation MUST).
   const onLoopback = LOOPBACK.has(host);
 
-  const mcp = toNodeHandler(createMcpHandler(factory), {
-    onerror: (error) => console.error(`[jev-mcp] http: ${error.message}`),
-  });
+  const mcp = toNodeHandler(
+    createMcpHandler(factory, {
+      // The tool list never changes: refuse subscriptions/listen in-band
+      // instead of letting a client park an idle SSE stream on a slot.
+      maxSubscriptions: 0,
+      onerror: (error) => console.error(`[jev-mcp] http: ${error.message}`),
+    }),
+    {
+      onerror: (error) => console.error(`[jev-mcp] http: ${error.message}`),
+    },
+  );
 
   let inFlight = 0;
   const server = createNodeServer((req, res) => {
@@ -81,7 +89,14 @@ export async function serveHttp(factory: () => McpServer, env: NodeJS.ProcessEnv
       res.writeHead(429, { "retry-after": "1" }).end();
     } else {
       inFlight++;
-      void mcp(req, res).finally(() => inFlight--);
+      void mcp(req, res)
+        .catch((error) => {
+          // toNodeHandler reports its own failures through onerror; a promise
+          // rejection here must not become an unhandled one that kills Node.
+          console.error(`[jev-mcp] http: ${(error as Error)?.message ?? error}`);
+          res.destroy();
+        })
+        .finally(() => inFlight--);
     }
   });
 
