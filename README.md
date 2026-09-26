@@ -136,17 +136,17 @@ Stdio is the default. To host one shared server for a team or a remote agent, ru
 JEV_MCP_AUTH_TOKEN="$(openssl rand -hex 32)" TYPESAFE_API_KEY=ts_... npx -y @jkudish/jev-mcp --http
 ```
 
-It listens on `PORT` (default `8080`) and `HOST` (default `127.0.0.1` — set `HOST=0.0.0.0` explicitly to serve beyond your machine), serves MCP at `/mcp` and a health check at `/health`. It speaks MCP 2026-07-28 and falls back to stateless serving for 2025-era clients, so it keeps no sessions and scales behind any load balancer. Every call spends your Jev key, so `JEV_MCP_AUTH_TOKEN` is required unless `HOST` is loopback. Clients send it as a bearer token:
+It listens on `PORT` (default `8080`) and serves MCP at `/mcp`, with a health check at `/health`. `HOST` defaults to `127.0.0.1`; set `HOST=0.0.0.0` explicitly to serve beyond your machine. It speaks MCP 2026-07-28 and falls back to stateless serving for 2025-era clients, so it keeps no sessions and scales behind any load balancer. Every call spends your Jev key, so `JEV_MCP_AUTH_TOKEN` is required unless `HOST` is loopback. Clients send it as a bearer token:
 
 ```bash
 claude mcp add --transport http jev https://jev.example.com/mcp --header "Authorization: Bearer $JEV_MCP_AUTH_TOKEN"
 ```
 
-The server itself speaks plain HTTP: terminate TLS at a reverse proxy or load balancer before exposing it beyond loopback, and put connection limits and request rate limits at that ingress — the process bounds admitted `/mcp` requests (`JEV_MCP_MAX_CONCURRENCY`, default 16; excess shed with `429`) and caps request bodies at 4 MiB, but it does not limit sockets waiting to finish headers or repeatedly rejected requests.
+The server itself speaks plain HTTP: terminate TLS at a reverse proxy or load balancer before exposing it beyond loopback, and put connection limits and request rate limits at that ingress. The process bounds admitted `/mcp` requests (`JEV_MCP_MAX_CONCURRENCY`, default 16; excess shed with `429`) and caps request bodies at 4 MiB, but it does not limit sockets waiting to finish headers or repeatedly rejected requests.
 
 ### Agent skill
 
-The package ships an agent skill (`skills/jev/`) that teaches coding agents when to reach for each tool instead of answering from their own reading — the difference between tools that sit registered-but-unused and tools that get called. Copy it into your client's skills directory:
+The package ships an agent skill (`skills/jev/`) that teaches coding agents when to reach for each tool instead of answering from their own reading: the difference between tools that sit registered-but-unused and tools that get called. Copy it into your client's skills directory:
 
 ```bash
 npm pack @jkudish/jev-mcp@latest
