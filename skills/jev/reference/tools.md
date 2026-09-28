@@ -84,6 +84,16 @@ Pull field values verbatim; your regex proposes, Jev selects.
 - Fields with zero regex matches never reach the model. A model-judged "none of the matches is the true value" is gated like a positive pick: confident → `not_found` / `none_matched`; below thresholds → `review` / `none_matched_ambiguous`. A truncated candidate universe (cap: 20 candidates of ≤ 2,000 chars per field, 50,000 chars across fields) can never be `auto`.
 - Tight patterns with precise descriptions beat permissive ones: the model chooses among matches, so a pattern that matches everything gives it nothing to choose from. `g` is always added to flags; non-letters are dropped; multi-letter flags like `gi` work.
 
+## jev_audit
+
+Audit extracted values against the source text they claim to come from, before trusting them. Question design from the TypeSafe SDE cascade cookbook.
+
+- Input: `source` (the document or a dense vision/ASR transcript, ≤ 50,000 chars); `records[]` (up to 32, each `{id, request, value}` — `request` ≤ 500 chars saying what was to be extracted, `value` ≤ 2,000 chars verbatim, empty if the extractor returned nothing); optional `wrong_at` (default 0.7, must be ≥ 0.5).
+- Output per record: `checks` (per failure mode: `hallucinated`, `off_target`, `incomplete`, `format` — or just `absence` for an empty value), `p_wrong` (the max over checks), `action` `ok` | `wrong` | `invalid_response`; plus overall `action` `pass` | `review` (truncated source) | `escalate` and `summary` (`records`, `flagged`, `invalid`).
+- Every check is framed so yes = something is wrong; the gate is the max, never a mean — one fired flag cannot be diluted by clean siblings. A `wrong` record is a fabrication or omission signal: escalate, do not re-run the extractor with the same prompt.
+- Multimodal intake: your vision/ASR model produces the transcript and the values, `jev_screen` the transcript, `jev_audit` the values against it, then judge with the other tools. Jev reads text only; it never sees pixels or audio.
+- Fail-closed: a malformed answer marks the record `invalid_response` and escalates; a truncated source demotes `pass` to `review`.
+
 ## jev_review
 
 Score a proposed diff against the request before calling the task done.

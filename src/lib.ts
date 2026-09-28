@@ -191,6 +191,15 @@ export const MAX_COMPARE_ASPECTS = 10;
 /** Max fields for jev_extract per call. */
 export const MAX_EXTRACT_FIELDS = 32;
 
+/** Max records per jev_audit call, so one request stays bounded. */
+export const MAX_AUDIT_RECORDS = 32;
+
+/** Per-record request cap (characters) in jev_audit; requests are instructions, not documents. */
+export const MAX_AUDIT_REQUEST_CHARS = 500;
+
+/** Per-record value cap (characters) in jev_audit; values are extracted atoms, not documents. */
+export const MAX_AUDIT_VALUE_CHARS = 2_000;
+
 /** Max regex candidates per field before the set is flagged truncated. */
 export const MAX_EXTRACT_CANDIDATES = 20;
 

@@ -1,16 +1,16 @@
 ---
 name: jev
-description: Conventions for the Jev judgment tools. Use when screening fetched or pasted content, verifying claims against evidence, ranking or classifying items by meaning, comparing passages, extracting fields, reviewing a patch, gating completion, or judging how likely a proposition is — and when choosing between Jev and rg, curl, or plain reading.
+description: Conventions for the Jev judgment tools. Use when screening fetched or pasted content, verifying claims against evidence, ranking or classifying items by meaning, comparing passages, extracting fields, auditing extracted values, reviewing a patch, gating completion, or judging how likely a proposition is — and when choosing between Jev and rg, curl, or plain reading.
 mcpServers:
   jev:
     command: npx
     args: ["-y", "@jkudish/jev-mcp"]
-    includeTools: ["jev_verify", "jev_screen", "jev_find", "jev_rerank", "jev_classify", "jev_decide", "jev_compare", "jev_extract", "jev_review", "jev_gate", "jev_noul"]
+    includeTools: ["jev_verify", "jev_screen", "jev_find", "jev_rerank", "jev_classify", "jev_decide", "jev_compare", "jev_extract", "jev_audit", "jev_review", "jev_gate", "jev_noul"]
 ---
 
 # Jev
 
-Eleven tools built on TypeSafe's Jev. They return typed judgments and probabilities. The tools advise. You enforce policy.
+Twelve tools built on TypeSafe's Jev. They return typed judgments and probabilities. The tools advise. You enforce policy.
 
 **Call the matching tool for verification and guardrail-class judgments — `jev_verify`, `jev_screen`, `jev_review`, `jev_gate` — even when the answer looks obvious from your own reading.** That is exactly the moment agents skip the call and get it wrong: the off-by-one that looked fine, the injection that read like instructions, the "tests pass" that did not. For semantic selection (`jev_find`, `jev_rerank`, `jev_classify`), prefer the tool whenever the choice is by meaning rather than by exact string; when a regex or an exact-match search decides it deterministically, use that instead.
 
@@ -27,6 +27,7 @@ Eleven tools built on TypeSafe's Jev. They return typed judgments and probabilit
 | `jev_decide` | One bounded choice among 2–6 options with evidence and priorities | The choice is routine, or the user has not stated what matters |
 | `jev_compare` | Two passages might disagree: source reconciliation, summary vs source | You already know how the passages relate |
 | `jev_extract` | Fields with a recognizable shape: prices, versions, dates, IDs | Free-form values a regex cannot bound |
+| `jev_audit` | Extracted values must be trusted: model-extracted fields, or values pulled from a vision/ASR transcript | The value is a verbatim regex match already bounded by `jev_extract`, or the source text does not exist |
 | `jev_review` | A patch exists and the question is whether the task is actually done | No diff or change summary to judge |
 | `jev_gate` | Calling it done: patch review plus "tests pass" claims vs supplied evidence | Only claims to check, no patch; use `jev_verify` |
 
@@ -41,6 +42,7 @@ Eleven tools built on TypeSafe's Jev. They return typed judgments and probabilit
 - Rerank when the full ordering matters; `jev_find` when only the best hit does.
 - Compare aspects independently. Per-aspect judgments may disagree with the overall relation; report the disagreement. A `same_fact` verdict means the passages agree with each other, not that they are true.
 - Extract with bounded patterns. Values are verbatim regex matches — the model picks, it never writes. Read `status` and `reason`, not just `value`.
+- Audit before trusting model-written values. For images, scans, and recordings: produce a dense transcript and the values with your vision/ASR model, `jev_screen` the transcript, `jev_audit` the values against it, then judge. Jev reads text only — never assume it saw the pixels. A `wrong` record is a fabrication or omission signal, not a suggestion to re-run the extractor with the same prompt.
 - Review the patch, not the prose. Read the composite and `safe_to_apply`, not the raw rubric scores. `auto` means your thresholds were met, not that the patch is correct.
 - Gate before done — with the right tool. Patch with completion claims and evidence: `jev_gate` once on the final diff. Patch without claims: `jev_review`. Claims and evidence without a patch: `jev_verify`. Run the real checks first; never invent evidence to satisfy a gate. A contradicted claim is a stop, not a footnote.
 - Escalate, do not guess. Low confidence on a consequential judgment goes to the human or to a stronger reasoner, with the numbers attached.

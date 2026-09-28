@@ -38,11 +38,12 @@ function payload(result) {
   return JSON.parse(block.text);
 }
 
-test("lists the eleven tools", { skip: !hasKey }, async () => {
+test("lists the twelve tools", { skip: !hasKey }, async () => {
   await withClient(async (client) => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     assert.deepEqual(names, [
+      "jev_audit",
       "jev_classify",
       "jev_compare",
       "jev_decide",

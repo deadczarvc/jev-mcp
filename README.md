@@ -9,7 +9,7 @@
 
 Fast, cheap, typed judgments from TypeSafe's Jev model, as MCP tools.
 
-Give your agent eleven judgment tools:
+Give your agent twelve judgment tools:
 
 - `jev_verify` checks claims against evidence.
 - `jev_screen` judges content before it enters context.
@@ -20,6 +20,7 @@ Give your agent eleven judgment tools:
 - `jev_decide` settles bounded alternatives.
 - `jev_compare` judges how two passages relate.
 - `jev_extract` pulls field values with regex plus judgment.
+- `jev_audit` audits extracted values against their source before they are trusted.
 - `jev_review` scores a proposed diff before the task is called done.
 - `jev_gate` reviews a patch and verifies completion claims in one call.
 
@@ -471,6 +472,56 @@ Pull structured fields out of a document with your regex and Jev's judgment. You
 - Invalid patterns and regexes that time out (they run in a sandboxed worker with a 1-second deadline, so a pathological pattern cannot hang the server) return `invalid_pattern` with the error instead of failing the whole call.
 - Up to 32 fields per call and 20 candidate matches per field, judged in one request. The document is capped at 50,000 characters, and the candidate match text at 50,000 characters in aggregate.
 
+### jev_audit
+
+Audit extracted values against the text they claim to come from, before the values are trusted. For each value, one request carries a failure-mode battery — hallucinated, off-target, incomplete, wrong format — each a yes/no question framed so that yes means something is wrong, plus a dedicated omission check for values that came back empty. A value's `p_wrong` is the maximum over its checks; any value at or above `wrong_at` (default 0.7) escalates the whole audit. Max-gated, never averaged: one fired flag cannot be diluted by clean siblings.
+
+```jsonc
+// arguments
+{
+  "source": "Invoice INV-7734. Total $1,240.00. Due 2026-10-15. Late fee 1.5% per month.",
+  "records": [
+    { "id": "total", "request": "The invoice total amount", "value": "$1,240.00" },
+    { "id": "due_date", "request": "The due date in YYYY-MM-DD", "value": "2026-10-15" },
+    { "id": "currency", "request": "The billing currency", "value": "EUR" }
+  ]
+}
+```
+
+```jsonc
+// live result, abridged
+{
+  "action": "escalate",
+  "wrong_at": 0.7,
+  "summary": { "records": 3, "flagged": 1, "invalid": 0 },
+  "records": [
+    { "id": "total", "value": "$1,240.00", "action": "ok", "p_wrong": 0.02,
+      "checks": { "hallucinated": 0.02, "off_target": 0.01, "incomplete": 0.01, "format": 0.01 } },
+    { "id": "due_date", "value": "2026-10-15", "action": "ok", "p_wrong": 0.03, "checks": { "…": "…" } },
+    { "id": "currency", "value": "EUR", "action": "wrong", "p_wrong": 0.91,
+      "checks": { "hallucinated": 0.91, "off_target": 0.4, "incomplete": 0.05, "format": 0.2 } }
+  ]
+}
+```
+
+Here the currency was fabricated — the invoice never states one — and the `hallucinated` check catches what a schema-valid extraction would happily pass through.
+
+- The framing discipline is the point: every check asks "is something wrong", so one threshold routes the record. The battery, the omission special case, and the max gate come from TypeSafe's SDE cascade cookbook, where this verifier is what catches a schema-valid fabrication.
+- An empty value gets only the omission check: wrong when the source supports a value the extractor missed, correct when returning nothing was right.
+- Malformed answers mark the record `invalid_response` and escalate: a protocol failure is never a clean pass. A truncated `source` (over 50,000 characters) demotes `pass` to `review`, never keeps it.
+- Up to 32 records per call, judged in one request; each request line is capped at 500 characters, each value at 2,000.
+
+#### Multimodal intake
+
+Jev reads text only — its state is a string, JSON object, or array, and images, audio, and video are not supported (pre-process to text first, per the TypeSafe docs). Multimodal judgment therefore lands as a cascade, with the text artifacts cross-checked by the text-only judge:
+
+1. **Extract** with your host model: a vision or ASR model produces a dense transcript of the image, scan, or recording, plus the structured values you want.
+2. **Screen** the transcript with `jev_screen`: transcripts of fetched content are untrusted text and get the injection screen before anything else.
+3. **Audit** the values against the transcript with `jev_audit`: a fabricated value reads as unsupported by the transcript exactly as it would against a document, because the two are independent passes over the same source.
+4. **Judge** with the existing tools — verify claims, classify, review — over the audited text, keeping the provenance in state so downstream judgments know they read an extraction, not the original.
+
+<sub>Question design adapted from the TypeSafe [SDE cascade cookbook](https://docs.typesafe.ai/cookbooks/sde_cascade) (see [#45](https://github.com/jkudish/jev-mcp/issues/45)).</sub>
+
 ### jev_review
 
 Score a proposed diff against the request before the task is called done. Jev answers four rubric questions, correctness, spec match, test gap, and blast radius, each 0..2, plus one safe-to-apply probability; the server combines them into a weighted composite and one action: `auto`, `review`, or `escalate`. It judges what you hand it. It never runs tests and never applies the patch.
@@ -580,6 +631,7 @@ The two true claims verify at full confidence, and the one that matters, "the fu
 - `jev_decide`: choose between a handful of options with priorities in view.
 - `jev_compare`: how two passages relate, overall or per aspect.
 - `jev_extract`: pull field values a regex can find, verbatim.
+- `jev_audit`: extracted values (from a document, or a vision/ASR transcript) before they are trusted.
 - `jev_review`: score a proposed diff before calling the task done.
 - `jev_gate`: that same review plus completion claims checked against evidence.
 

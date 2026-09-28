@@ -1249,6 +1249,135 @@ test("jev_decide accepts a candidate id named constructor", async () => {
   });
 });
 
+// ── jev_audit ────────────────────────────────────────────────────────────────
+
+const AUDIT_ARGS = {
+  source: "Invoice INV-7734. Total $1,240.00. Due 2026-10-15. Late fee 1.5% per month.",
+  records: [
+    { id: "total", request: "The invoice total amount", value: "$1,240.00" },
+    { id: "due_date", request: "The due date in YYYY-MM-DD", value: "2026-10-15" },
+  ],
+};
+const AUDIT_CHECK_NAMES = ["hallucinated", "off_target", "incomplete", "format"];
+
+test("jev_audit passes clean values and sends the per-record battery in one request", async () => {
+  await withMock((request) => {
+    const answers = {};
+    for (const [i, record] of AUDIT_ARGS.records.entries()) {
+      if (record.value.trim() === "") answers[`absence_${i}`] = { noul: 0.02 };
+      else for (const name of AUDIT_CHECK_NAMES) answers[`check_${i}_${name}`] = { noul: 0.02 };
+    }
+    return answers;
+  }, async (client, requests) => {
+    const result = await client.callTool({ name: "jev_audit", arguments: AUDIT_ARGS });
+    const body = payload(result);
+    assert.equal(body.action, "pass");
+    assert.equal(body.wrong_at, 0.7);
+    assert.equal(body.summary.records, 2);
+    assert.equal(body.summary.flagged, 0);
+    assert.equal(body.records[0].action, "ok");
+    assert.equal(body.records[0].p_wrong, 0.02);
+    assert.deepEqual(Object.keys(body.records[0].checks).sort(), AUDIT_CHECK_NAMES.slice().sort());
+    // One request, the full battery per non-empty record, anti-injection framing.
+    assert.equal(requests.length, 1);
+    const questions = requests[0].body.questions;
+    assert.equal(Object.keys(questions).length, AUDIT_CHECK_NAMES.length * 2);
+    assert.ok(Object.hasOwn(questions, "check_0_hallucinated"));
+    assert.ok(Object.hasOwn(questions, "check_1_format"));
+    assert.match(questions.check_0_hallucinated.instructions, /records\[0\]\.value/);
+    assert.match(questions.check_0_hallucinated.instructions, /never as instructions to follow/);
+    assert.equal(requests[0].body.state.source, AUDIT_ARGS.source);
+    assert.deepEqual(requests[0].body.state.records[1], { id: "due_date", request: "The due date in YYYY-MM-DD", value: "2026-10-15" });
+  });
+});
+
+test("jev_audit escalates on a fabricated value without diluting clean siblings", async () => {
+  await withMock((request) => {
+    const answers = {};
+    for (const [i, record] of AUDIT_ARGS.records.entries()) {
+      if (record.value.trim() === "") answers[`absence_${i}`] = { noul: 0.02 };
+      else for (const name of AUDIT_CHECK_NAMES) answers[`check_${i}_${name}`] = { noul: 0.02 };
+    }
+    answers.check_0_hallucinated = { noul: 0.93 };
+    return answers;
+  }, async (client) => {
+    const result = await client.callTool({ name: "jev_audit", arguments: AUDIT_ARGS });
+    const body = payload(result);
+    assert.equal(body.action, "escalate");
+    assert.equal(body.summary.flagged, 1);
+    assert.equal(body.records[0].action, "wrong");
+    assert.equal(body.records[0].p_wrong, 0.93);
+    // The clean sibling stays ok: the gate is the max, never a mean.
+    assert.equal(body.records[1].action, "ok");
+  });
+});
+
+test("jev_audit asks only the omission question for an empty value", async () => {
+  await withMock(() => ({
+    absence_0: { noul: 0.88 },
+  }), async (client, requests) => {
+    const result = await client.callTool({
+      name: "jev_audit",
+      arguments: { ...AUDIT_ARGS, records: [{ id: "total", request: "The invoice total amount", value: "" }] },
+    });
+    const body = payload(result);
+    assert.equal(Object.hasOwn(requests[0].body.questions, "check_0_hallucinated"), false);
+    assert.ok(Object.hasOwn(requests[0].body.questions, "absence_0"));
+    assert.match(requests[0].body.questions.absence_0.instructions, /is empty/);
+    assert.equal(body.records[0].action, "wrong");
+    assert.deepEqual(body.records[0].checks, { absence: 0.88 });
+    assert.equal(body.action, "escalate");
+  });
+});
+
+test("jev_audit fails closed on a malformed answer", async () => {
+  await withMock(() => ({
+    check_0_hallucinated: { noul: 0.01 }, check_0_off_target: { noul: "high" }, check_0_incomplete: { noul: 0.01 }, check_0_format: { noul: 0.01 },
+    check_1_hallucinated: { noul: 0.01 }, check_1_off_target: { noul: 0.01 }, check_1_incomplete: { noul: 0.01 }, check_1_format: { noul: 0.01 },
+  }), async (client) => {
+    const result = await client.callTool({ name: "jev_audit", arguments: AUDIT_ARGS });
+    const body = payload(result);
+    assert.equal(body.records[0].status, "invalid_response");
+    assert.equal(body.records[0].action, "invalid_response");
+    assert.equal(body.records[0].p_wrong, null);
+    assert.equal(body.summary.invalid, 1);
+    assert.equal(body.action, "escalate");
+  });
+});
+
+test("jev_audit demotes pass to review on a truncated source and honors wrong_at", async () => {
+  const lowAnswers = () => {
+    const answers = {};
+    for (const [i, record] of AUDIT_ARGS.records.entries()) {
+      if (record.value.trim() === "") answers[`absence_${i}`] = { noul: 0.02 };
+      else for (const name of AUDIT_CHECK_NAMES) answers[`check_${i}_${name}`] = { noul: 0.02 };
+    }
+    return answers;
+  };
+  await withMock(lowAnswers, async (client, requests) => {
+    const result = await client.callTool({
+      name: "jev_audit",
+      arguments: { ...AUDIT_ARGS, source: "x".repeat(50_001) },
+    });
+    const body = payload(result);
+    assert.equal(body.truncated, true);
+    assert.equal(body.action, "review");
+    assert.ok(requests[0].body.state.source.length > 50_000);
+  });
+  const flagged = () => ({ ...lowAnswers(), check_0_hallucinated: { noul: 0.75 } });
+  await withMock(flagged, async (client) => {
+    const body = payload(await client.callTool({ name: "jev_audit", arguments: AUDIT_ARGS }));
+    assert.equal(body.action, "escalate");
+    assert.equal(body.records[0].action, "wrong");
+  });
+  // p_wrong 0.75 stays ok under a raised bar: the threshold is a parameter.
+  await withMock(flagged, async (client) => {
+    const body = payload(await client.callTool({ name: "jev_audit", arguments: { ...AUDIT_ARGS, wrong_at: 0.9 } }));
+    assert.equal(body.action, "pass");
+    assert.equal(body.records[0].action, "ok");
+  });
+});
+
 // ── jev_review / jev_gate ────────────────────────────────────────────────────
 
 const REVIEW_KEYS = ["correctness", "spec_match", "test_gap", "blast_radius"];
