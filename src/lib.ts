@@ -263,7 +263,7 @@ export const MAX_REVIEW_DOC_CHARS = 50_000;
 /** Max files in one per-file review (jev_review / jev_gate files mode). */
 export const MAX_REVIEW_FILES = 16;
 
-/** Aggregate per-file diff budget (characters) for one per-file review, before per-file truncation. */
+/** Combined-state budget (characters): request + tests + all file diffs for one per-file review. */
 export const MAX_REVIEW_FILES_TOTAL_CHARS = 200_000;
 
 /** Per-file path cap (characters) in per-file review; paths are identifiers, not documents. */

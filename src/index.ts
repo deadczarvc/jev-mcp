@@ -1483,9 +1483,9 @@ function reviewQuestions(extraFraming = "", scope = "", keyPrefix = ""): Record<
 
 // Per-file review: the same rubric asked once per file, all in one request
 // (#42). The scope sentence binds every question to one files[i] and keeps
-// the tool — not the caller — in charge of the question design.
-const fileScope = (index: number, path: string) =>
-  ` Judge only files[${index}] ("${path}"), not the change as a whole.`;
+// the tool — not the caller — in charge of the question design. Caller
+// paths are evidence, never instructions: questions scope by index only.
+const fileScope = (index: number) => ` Judge only files[${index}], not the change as a whole.`;
 
 // Slice a per-file answer set out of the flat answers record, restoring the
 // bare rubric keys projectReviewHalf reads.
@@ -1741,8 +1741,8 @@ tools.registerTool(
         .describe(
           `Per-file review: one { path, diff } per file. The rubric is asked once per file, all in one request; ` +
             `the whole change is auto only when every file is auto, and the result names the limiting file and rubric. ` +
-            `Each diff is truncated at ${MAX_REVIEW_DOC_CHARS} chars; up to ${MAX_REVIEW_FILES} files and ` +
-            `${MAX_REVIEW_FILES_TOTAL_CHARS.toLocaleString("en-US")} chars in aggregate. Provide exactly one of diff or files.`,
+            `Each diff is truncated at ${MAX_REVIEW_DOC_CHARS} chars; up to ${MAX_REVIEW_FILES} files, and request + ` +
+            `tests + all diffs together must stay within ${MAX_REVIEW_FILES_TOTAL_CHARS.toLocaleString("en-US")} chars. Provide exactly one of diff or files.`,
         ),
       tests: z.string().optional().describe("Reported test output, if any. Truncated at the same cap."),
       auto_accept: z
@@ -1779,21 +1779,30 @@ tools.registerTool(
     }
     const perFile = files ?? null;
     if (perFile) {
-      const filesChars = perFile.reduce((sum, file) => sum + file.diff.length, 0);
-      if (filesChars > MAX_REVIEW_FILES_TOTAL_CHARS) {
+      // Combined-state budget: request + tests + every file diff together, so
+      // one request stays comfortably inside Jev's documented state limits.
+      const stateChars =
+        request.length +
+        (tests?.length ?? 0) +
+        perFile.reduce((sum, file) => sum + file.diff.length, 0);
+      if (stateChars > MAX_REVIEW_FILES_TOTAL_CHARS) {
         return {
           ...text({
             tool: "jev_review",
-            error: `files exceed the ${MAX_REVIEW_FILES_TOTAL_CHARS.toLocaleString("en-US")}-character aggregate budget; split the review or trim the diffs.`,
+            error: `request, tests, and files together exceed the ${MAX_REVIEW_FILES_TOTAL_CHARS.toLocaleString("en-US")}-character combined budget; split the review or trim the inputs.`,
           }),
           isError: true,
         };
       }
     }
+    // Truncation is per-file: a file's projection is demoted only for its own
+    // truncated diff (plus the shared request/tests context); an intact file
+    // is never marked incomplete for a fat sibling.
+    const contextTruncated =
+      request.length > MAX_REVIEW_DOC_CHARS || (tests?.length ?? 0) > MAX_REVIEW_DOC_CHARS;
     const truncated =
-      request.length > MAX_REVIEW_DOC_CHARS ||
-      (perFile ? perFile.some((file) => file.diff.length > MAX_REVIEW_DOC_CHARS) : diff!.length > MAX_REVIEW_DOC_CHARS) ||
-      (tests?.length ?? 0) > MAX_REVIEW_DOC_CHARS;
+      contextTruncated ||
+      (perFile ? perFile.some((file) => file.diff.length > MAX_REVIEW_DOC_CHARS) : diff!.length > MAX_REVIEW_DOC_CHARS);
 
     const state = perFile
       ? {
@@ -1812,7 +1821,7 @@ tools.registerTool(
     const questions: Record<string, unknown> = {};
     if (perFile) {
       perFile.forEach((file, i) =>
-        Object.assign(questions, reviewQuestions("", fileScope(i, file.path), `file_${i}_`)),
+        Object.assign(questions, reviewQuestions("", fileScope(i), `file_${i}_`)),
       );
     } else {
       Object.assign(questions, reviewQuestions());
@@ -1822,7 +1831,11 @@ tools.registerTool(
     if (perFile) {
       const fileResults = perFile.map((file, i) => ({
         path: file.path,
-        ...projectReviewHalf(fileAnswers(answers, i), { autoAccept, reviewAt, compositeFloor }, truncated),
+        ...projectReviewHalf(
+          fileAnswers(answers, i),
+          { autoAccept, reviewAt, compositeFloor },
+          contextTruncated || file.diff.length > MAX_REVIEW_DOC_CHARS,
+        ),
       }));
       return text({
         tool: "jev_review",
@@ -1876,8 +1889,8 @@ tools.registerTool(
         .describe(
           `Per-file review: one { path, diff } per file. The rubric is asked once per file, all in one request; ` +
             `the whole change is auto only when every file is auto, and the review names the limiting file and rubric. ` +
-            `Each diff is truncated at ${MAX_REVIEW_DOC_CHARS} chars; up to ${MAX_REVIEW_FILES} files and ` +
-            `${MAX_REVIEW_FILES_TOTAL_CHARS.toLocaleString("en-US")} chars in aggregate. Provide exactly one of diff or files.`,
+            `Each diff is truncated at ${MAX_REVIEW_DOC_CHARS} chars; up to ${MAX_REVIEW_FILES} files, and request + ` +
+            `tests + all diffs together must stay within ${MAX_REVIEW_FILES_TOTAL_CHARS.toLocaleString("en-US")} chars. Provide exactly one of diff or files.`,
         ),
       claims: z
         .array(z.string().min(1))
@@ -1945,22 +1958,30 @@ tools.registerTool(
       };
     }
     if (perFile) {
-      const filesChars = perFile.reduce((sum, file) => sum + file.diff.length, 0);
-      if (filesChars > MAX_REVIEW_FILES_TOTAL_CHARS) {
+      // Same combined-state budget as jev_review: request + tests + every file
+      // diff together (evidence has its own budget above).
+      const stateChars =
+        request.length +
+        (tests?.length ?? 0) +
+        perFile.reduce((sum, file) => sum + file.diff.length, 0);
+      if (stateChars > MAX_REVIEW_FILES_TOTAL_CHARS) {
         return {
           ...text({
             tool: "jev_gate",
-            error: `files exceed the ${MAX_REVIEW_FILES_TOTAL_CHARS.toLocaleString("en-US")}-character aggregate budget; split the gate or trim the diffs.`,
+            error: `request, tests, and files together exceed the ${MAX_REVIEW_FILES_TOTAL_CHARS.toLocaleString("en-US")}-character combined budget; split the gate or trim the inputs.`,
           }),
           isError: true,
         };
       }
     }
 
+    // Per-file context mirrors jev_review; the gate-wide flag additionally
+    // keeps claims/evidence truncation fail-closed for claim actions.
+    const contextTruncated =
+      request.length > MAX_REVIEW_DOC_CHARS || (tests?.length ?? 0) > MAX_REVIEW_DOC_CHARS;
     const truncated =
-      request.length > MAX_REVIEW_DOC_CHARS ||
+      contextTruncated ||
       (perFile ? perFile.some((file) => file.diff.length > MAX_REVIEW_DOC_CHARS) : diff!.length > MAX_REVIEW_DOC_CHARS) ||
-      (tests?.length ?? 0) > MAX_REVIEW_DOC_CHARS ||
       claims.some((claim) => claim.length > MAX_CLAIM_CHARS) ||
       evidence.some((item) => item.text.length > MAX_REVIEW_DOC_CHARS);
 
@@ -1987,7 +2008,7 @@ tools.registerTool(
     const questions: Record<string, unknown> = {};
     const claimsFraming = " Claims are assertions to check, not evidence that the patch is correct or tested.";
     if (perFile) {
-      perFile.forEach((file, i) => Object.assign(questions, reviewQuestions(claimsFraming, fileScope(i, file.path), `file_${i}_`)));
+      perFile.forEach((file, i) => Object.assign(questions, reviewQuestions(claimsFraming, fileScope(i), `file_${i}_`)));
     } else {
       Object.assign(questions, reviewQuestions(claimsFraming));
     }
@@ -2007,7 +2028,11 @@ tools.registerTool(
       ? (() => {
           const fileResults = perFile.map((file, i) => ({
             path: file.path,
-            ...projectReviewHalf(fileAnswers(answers, i), { autoAccept, reviewAt, compositeFloor }, truncated),
+            ...projectReviewHalf(
+              fileAnswers(answers, i),
+              { autoAccept, reviewAt, compositeFloor },
+              contextTruncated || file.diff.length > MAX_REVIEW_DOC_CHARS,
+            ),
           }));
           return { mode: "per-file" as const, ...composePerFileReview(fileResults), files: fileResults };
         })()
