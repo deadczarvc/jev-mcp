@@ -1300,7 +1300,8 @@ tools.registerTool(
       "max-gated, never averaged. For multimodal intake: run your vision or ASR model first to produce a dense transcript of the " +
       "image, scan, or recording, screen that transcript with jev_screen, then audit the extracted values against it here — the " +
       "tool never sees pixels or audio, it audits two text artifacts against each other. Schema validation catches structural " +
-      "errors; this is the verifier that catches a schema-valid fabrication.",
+      "errors; it can flag a schema-valid fabrication against the supplied source text — "
+      + "a limited cross-check, not verification of the original.",
     inputSchema: strictShape({
       source: z
         .string()
