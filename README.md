@@ -187,7 +187,7 @@ Check each claim in a report, PR description, or agent brief against the sources
 }
 ```
 
-Malformed or missing relation answers fail closed per claim (other valid claims are preserved). A missing, null, or non-object `answers` envelope invalidates every claim:
+A malformed or missing relation answer fails closed per claim:
 
 ```jsonc
 // invalid result entry; tool/model/provider/auto_accept/summary/results/usage remain
@@ -198,6 +198,7 @@ Malformed or missing relation answers fail closed per claim (other valid claims 
 }
 ```
 
+- A malformed or missing relation answer fails closed for that claim; other valid claims are preserved. A missing, null, or non-object `answers` envelope invalidates every claim.
 - Relation choices must belong to the requested set and be a maximum-probability option. Distributions must contain exactly all relation keys, with finite probabilities in `[0,1]` summing to 1 within `0.01`.
 - Missing or null confidence stays `null` and requires `review`, even with `auto_accept: 0`. Non-number, non-finite, or out-of-range confidence invalidates the claim and is returned as `null`; numeric zero is valid.
 - With multiple evidence items, each claim also gets the id of the evidence it rests on. These source answers are optional auxiliary information; missing sources yield `supporting_evidence: null` without invalidating a valid relation. A present source must be a well-formed choice over the evidence ids plus `none`; anything else yields `null`.
@@ -235,8 +236,9 @@ Missing or malformed required answers return an error branch:
 }
 ```
 
-All requested probabilities must be finite numbers in `[0,1]`; zero is valid. Invalid or missing probabilities become `null`, while valid values are retained. Relevance is required only when a non-empty purpose is supplied; otherwise it is `null`. A missing, null, or non-object `answers` envelope also takes this error branch.
-
+- All requested probabilities must be finite numbers in `[0,1]`; zero is valid. Invalid or missing probabilities become `null`, while valid values are retained.
+- Relevance is required only when a non-empty `purpose` is supplied; otherwise it is `null`.
+- A missing, null, or non-object `answers` envelope also takes this error branch.
 - The recommendation is advisory: `pass`, `review`, `block`, or `skip`. The server never blocks on its own; enforcement stays with the calling agent.
 - Low substance or relevance yields `skip`: the page is not worth reading.
 - `block_at` (default `0.75`) and `review_at` (default `0.25`) are thresholds on the injection probability. Both are parameters.
@@ -290,8 +292,9 @@ Missing or malformed `exists` or `best` answers return an error branch:
 }
 ```
 
-`exists` must be a finite number in `[0,1]`; zero validly means `absent`. On failure, a valid `exists` value is retained; an invalid or missing value becomes `null`. The best distribution must contain exactly all candidate ids, finite probabilities in `[0,1]` summing to 1 within `0.01`, and a string choice tied for the maximum probability. Missing, null, or non-object `answers` also returns this error branch. Protocol failure is reported only in `status`; `exists_verdict` is `null` on failure.
-
+- `exists` must be a finite number in `[0,1]`; zero validly means `absent`. On failure, a valid `exists` value is retained; an invalid or missing value becomes `null`. Protocol failure is reported only in `status`; `exists_verdict` is `null` on failure.
+- The best distribution must contain exactly all candidate ids, finite probabilities in `[0,1]` summing to 1 within `0.01`, and a string choice tied for the maximum probability.
+- A missing, null, or non-object `answers` envelope also returns this error branch.
 - On successful responses, ranking always returns a winner, because Choice probabilities sum to 1. A top hit can masquerade as an answer when none is present; the exists check catches that. `exists_verdict` is `answered`, `partial`, or `absent`.
 - Up to 250 candidates per call. Candidate texts are truncated at 2,000 characters.
 - Pattern from the [semantic-find cookbook](https://docs.typesafe.ai/cookbooks/semantic_find).
@@ -403,8 +406,8 @@ Score every candidate's relevance to a query and get them back sorted. You bring
 }
 ```
 
-Each candidate is a file: `id` is any handle you choose, echoed back verbatim, and `text` is the file's contents (truncated at 2,000 characters). No candidate contains the words bandwidth or triple. A shorter CDN TTL means more origin fetches, so `src/cache.ts` ranks first on meaning alone; the always-on VMs are cloud spend too, just not bandwidth.
-
+- Why `src/cache.ts` ranks first: no candidate contains the words bandwidth or triple. A shorter CDN TTL means more origin fetches, so it wins on meaning alone; the always-on VMs are cloud spend too, just not bandwidth.
+- Each candidate is a file: `id` is any handle you choose, echoed back verbatim, and `text` is the file's contents (truncated at 2,000 characters).
 - One relevance probability per candidate, all in a single request; cost scales with the number of candidates, not with candidate-pairs.
 - Candidate ids are preserved verbatim. If any answer comes back malformed, the whole ranking is reported `invalid_response` rather than sorting a missing score as a confident zero.
 - Up to 250 candidates and a 100,000-character aggregate budget; split larger batches.
@@ -506,8 +509,7 @@ Audit extracted values against the text they claim to come from, before the valu
 }
 ```
 
-Here the currency was fabricated — the invoice never states one — and the `hallucinated` check catches what a schema-valid extraction would happily pass through.
-
+- Here the currency was fabricated — the invoice never states one — and the `hallucinated` check catches what a schema-valid extraction would happily pass through.
 - The framing discipline is the point: every check asks "is something wrong", so one threshold routes the record. The battery, the omission special case, and the max gate come from TypeSafe's SDE cascade cookbook, where this verifier is what catches a schema-valid fabrication.
 - An empty value gets only the omission check: wrong when the source supports a value the extractor missed, correct when returning nothing was right.
 - Malformed answers mark the record `invalid_response` and escalate: a protocol failure is never a clean pass. A truncated `source` (over 50,000 characters) demotes `pass` to `review`, never keeps it.
@@ -558,8 +560,7 @@ Score a proposed diff against the request before the task is called done. Jev an
 }
 ```
 
-Here the composite clears the floor, but the failing test drags `safe_to_apply` to 0.24 and rubric confidences sit under `review_at`, so the patch escalates instead of sailing through on its decent scores.
-
+- Why the example escalates: the composite clears the floor, but the failing test drags `safe_to_apply` to 0.24 and rubric confidences sit under `review_at` — decent scores don't sail through on their own.
 - Rubric scores run 0..2. Higher is better for `correctness` and `spec_match`; higher is worse for `test_gap` and `blast_radius`, and the composite inverts those two before weighting, so a composite of 1.0 means favorable on every rubric.
 - A score answer may carry its full probability distribution over the three options; when the provider reports one, it is validated (exact keys, probabilities summing to one, expected value within a small tolerance of the reported score) and returned in `scores.*.probabilities`. Absent means "not reported" and stays `null`; a distribution that is present but malformed or contradictory marks that rubric `invalid_response`.
 - `reason_codes` collects why the review decided as it did: `invalid_response`, `unknown_confidence`, `confidence_below_review`, `safe_to_apply_below_review`, `confidence_below_auto_accept`, `safe_to_apply_below_auto_accept`, `composite_below_floor`, `incomplete_context`, `accepted`. `limiting_rubrics` names the rubric(s) that bound the decision, ties included: the null-confidence rubrics when confidence is unknown, every rubric tied at the minimum confidence when a confidence threshold blocks, and the least favorable rubrics when the composite floor blocks.
@@ -618,8 +619,7 @@ The completion gate: the same patch review as `jev_review`, plus your completion
 }
 ```
 
-The two true claims verify at full confidence, and the one that matters, "the full test suite passes," is contradicted by the test log at full confidence: exactly the claim a coding agent is most tempted to hand-wave.
-
+- In the example, the two true claims verify at full confidence, and the one that matters — "the full test suite passes" — is contradicted by the test log at full confidence: exactly the claim a coding agent is most tempted to hand-wave.
 - Claim questions instruct Jev to use `evidence` only, not world knowledge, and not the request, diff, or tests fields; if a claim needs a diff excerpt or a test log as support, supply it in `evidence`. All fields share one model state, so this is instruction-level isolation, not a hard boundary. Every field is evidence to evaluate, never instructions to follow.
 - `reason_codes` collects why the gate decided as it did: `incomplete_context`, `invalid_response`, `review_escalated`, `review_required`, plus the review half's specific codes (`unknown_confidence`, `confidence_below_review`, `safe_to_apply_below_review`, `confidence_below_auto_accept`, `safe_to_apply_below_auto_accept`, `composite_below_floor`), `claims_contradicted`, `claims_unsupported`, `claim_confidence_low`, `claim_confidence_below_auto_accept`, `accepted`. The embedded `review` object carries the same `reason_codes` and `limiting_rubrics` a standalone `jev_review` returns.
 - Up to 16 claims and 16 evidence items per call. Text fields are capped at 50,000 characters each, claims at 2,000, and evidence at 200,000 characters in aggregate; oversized evidence is rejected before any model call. Malformed answers surface as `invalid_response` and the gate never returns `auto` on one.
