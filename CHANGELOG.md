@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0
+
+- New `jev_audit` tool: a max-gated failure-mode battery (hallucinated, off-target, incomplete, wrong format) plus an omission check, auditing extracted values against their source before they're trusted. Via [#48](https://github.com/jkudish/jev-mcp/pull/48) by Rex-Gao, prompted by [#45](https://github.com/jkudish/jev-mcp/issues/45).
+- `jev_decide`: names `contradicted_requirements` on the recommendation, and opt-in `escalate_on_contradiction` withdraws a contradicted pick in addition to the warning; no silent re-selection. Via [#46](https://github.com/jkudish/jev-mcp/pull/46) by Rex-Gao, prompted by [#43](https://github.com/jkudish/jev-mcp/issues/43); the structural-field idea from [#44](https://github.com/jkudish/jev-mcp/pull/44) by xujiantop-crypto.
+- `jev_review` / `jev_gate`: optional per-file review mode — one request, composed auto/mean/min/limiting, combined request+tests+diffs budget, per-file truncation. Via [#47](https://github.com/jkudish/jev-mcp/pull/47) by Rex-Gao, prompted by [#42](https://github.com/jkudish/jev-mcp/issues/42).
+- Docs: runnable Exa search → classification example. Via [#41](https://github.com/jkudish/jev-mcp/pull/41) by RogueTex.
+
 ## 0.10.1
 
 - `--http` advertises a static tool list and refuses `subscriptions/listen` in-band: previously a client that opened a listener parked an idle stream on a concurrency slot for its lifetime, and enough listeners could starve the server of slots. Slot accounting no longer leaks on a rejected handler either.
