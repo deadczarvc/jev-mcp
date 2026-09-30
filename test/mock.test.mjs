@@ -2112,6 +2112,20 @@ test("TypeSafe package rejection invalidates only the malformed judgment without
   });
 });
 
+for (const [status, message] of [[429, "rate limited"], [503, "unavailable"]]) {
+  test(`TypeSafe exhausted HTTP ${status} is a tool error, not an invalid judgment`, async () => {
+    await withMock({}, async (client, requests) => {
+      const result = await client.callTool({ name: "jev_verify", arguments: VERIFY_ARGS });
+      assert.equal(result.isError, true);
+      const text = result.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+      assert.ok(text.includes(message));
+      assert.ok(text.includes(`HTTP ${status}`));
+      assert.ok(!text.includes("upstream-secret"));
+      assert.equal(requests.length, 3);
+    }, { JEV_PROVIDER: "typesafe" }, { status, raw: "upstream-secret" });
+  });
+}
+
 test("TypeSafe package invalid usage becomes structured invalid_response", async () => {
   await withMock(() => ({ relation_claim0: pick("supports", ["supports", "contradicts", "says_nothing"]) }), async (client) => {
     const result = await client.callTool({ name: "jev_verify", arguments: VERIFY_ARGS });
