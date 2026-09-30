@@ -240,6 +240,21 @@ test("--http with JEV_MCP_PATH_TOKEN=1 accepts /mcp/<token> and rejects wrong or
   }
 });
 
+test("--http path-token credentials take precedence over headers when both are present", async () => {
+  const { url, stop } = await startHttp({ JEV_MCP_AUTH_TOKEN: TOKEN, JEV_MCP_PATH_TOKEN: "1" });
+  try {
+    // A wrong path token is rejected even with a correct bearer header: the
+    // path form is an alternative credential, not a second factor.
+    assert.equal(await rawPost(url, "/mcp/wrong-token", { authorization: `Bearer ${TOKEN}` }), 401);
+    // A correct path token authorizes even with a wrong header.
+    assert.equal(await rawPost(url, `/mcp/${TOKEN}`, { authorization: "Bearer wrong" }), 200);
+    // A query string never supplies or invalidates the credential.
+    assert.equal(await rawPost(url, `/mcp/${TOKEN}?x=1`), 200);
+  } finally {
+    await stop();
+  }
+});
+
 test("--http refuses JEV_MCP_PATH_TOKEN=1 without JEV_MCP_AUTH_TOKEN", { timeout: 10_000 }, async (t) => {
   const child = spawn(process.execPath, [serverPath, "--http"], {
     env: { PATH: process.env.PATH, TYPESAFE_API_KEY: "test-key", HOST: "127.0.0.1", PORT: "0", JEV_MCP_PATH_TOKEN: "1" },

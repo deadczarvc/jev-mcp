@@ -52,6 +52,11 @@ export async function serveHttp(factory: () => McpServer, env: NodeJS.ProcessEnv
   if (pathToken && token.length === 0) {
     throw new Error("JEV_MCP_PATH_TOKEN requires JEV_MCP_AUTH_TOKEN");
   }
+  // The path form compares the segment raw, so a token containing characters
+  // a client may percent-encode could never match. Refuse at startup instead.
+  if (pathToken && /[^\w.\-~]/.test(env.JEV_MCP_AUTH_TOKEN ?? "")) {
+    throw new Error("JEV_MCP_PATH_TOKEN requires a URL-safe token (letters, digits, . _ - ~)");
+  }
   if (!Number.isInteger(maxInFlight) || maxInFlight < 1) {
     throw new Error("JEV_MCP_MAX_CONCURRENCY must be a positive integer");
   }
@@ -102,6 +107,9 @@ export async function serveHttp(factory: () => McpServer, env: NodeJS.ProcessEnv
       res.writeHead(429, { "retry-after": "1" }).end();
     } else {
       inFlight++;
+      // The token never travels past auth: rewrite the authenticated URL so
+      // the SDK's Request (and any diagnostics built from it) sees /mcp only.
+      if (fromPath !== undefined) req.url = "/mcp";
       void mcp(req, res)
         .catch((error) => {
           // toNodeHandler reports its own failures through onerror; a promise
