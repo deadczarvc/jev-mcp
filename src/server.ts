@@ -26,6 +26,8 @@ import {
   contradictsRecommendation,
   DECIDE_ESCAPE_HATCHES,
   DEFAULT_COMPOSITE_FLOOR,
+  DEFAULT_SUBJECT_AT,
+  SUBJECT_CRITERIA,
   ensureUniqueIds,
   existsVerdict,
   hasNonEmptyEvidence,
@@ -184,10 +186,14 @@ tools.registerTool(
         .max(1)
         .optional()
         .describe("Verdicts at or above this confidence stand automatically; below it they are flagged 'review'. Default 0.8."),
+      subject_at: z.number().min(0).max(1).optional().describe(
+        `A contradiction stands only when same_subject reaches this probability. Default ${DEFAULT_SUBJECT_AT}.`,
+      ),
     }),
   },
-  async ({ claims, evidence: rawEvidence, auto_accept }, ctx) => {
+  async ({ claims, evidence: rawEvidence, auto_accept, subject_at }, ctx) => {
     const autoAccept = auto_accept ?? 0.8;
+    const subjectAt = subject_at ?? DEFAULT_SUBJECT_AT;
     const evidenceItems =
       typeof rawEvidence === "string"
         ? [{ id: "evidence", text: rawEvidence }]
@@ -207,20 +213,26 @@ tools.registerTool(
     }
 
     const questions: Record<string, unknown> = {};
-    for (const claim of claimItems) {
+    for (const [i, claim] of claimItems.entries()) {
       questions[`relation_${claim.id}`] = choice(
-        `How does the evidence relate to claim \`${claim.id}\` (${claim.text})?`,
+        `How does the evidence relate to claims[${i}]?` + ANTI_INJECTION,
         {
           supports: "The evidence states the claim or directly implies that it is true",
           contradicts: "The evidence states the opposite of the claim or implies that it is false",
           says_nothing: "The evidence does not address what the claim asserts, either way",
         },
       );
+      // Decompose relation and subject judgments, then compose in code.
+      // Caller text stays in state, never in question instructions.
+      questions[`subject_${claim.id}`] = noul(
+        `The evidence contains the result of the very check, run, file, or object that claims[${i}] is about.` + ANTI_INJECTION,
+        SUBJECT_CRITERIA,
+      );
       if (evidence.length > 1) {
         const criteria: Record<string, string | null> = Object.fromEntries(evidence.map((e) => [e.id, null]));
         criteria[noEvidenceKey] = "No single evidence item contains the content the claim depends on";
         questions[`source_${claim.id}`] = choice(
-          `Which evidence item does claim \`${claim.id}\` (${claim.text}) rest on?`,
+          `Which evidence item does claims[${i}] rest on?` + ANTI_INJECTION,
           criteria,
         );
       }
@@ -259,17 +271,23 @@ tools.registerTool(
           status: "invalid_response" as const,
           action: "review" as const,
           supporting_evidence: null,
+          same_subject: null,
         };
       }
-      const verdict = RELATION_TO_VERDICT[relation.choice];
+      const sameSubject = validateNoulAnswer(answers[`subject_${claim.id}`]);
+      const relationVerdict = RELATION_TO_VERDICT[relation.choice];
+      const offSubject = relationVerdict === "contradicted" && sameSubject !== null && sameSubject < subjectAt;
+      const unknownSubject = relationVerdict === "contradicted" && sameSubject === null;
       return {
         id: claim.id,
         claim: claim.text,
-        verdict,
+        verdict: offSubject ? "unsupported" : relationVerdict,
+        ...(offSubject ? { relation_verdict: relationVerdict } : {}),
         probabilities: relation.probabilities ?? null,
         confidence,
-        action: confidence === null ? "review" : verifyAction(confidence, autoAccept),
+        action: confidence === null || offSubject || unknownSubject ? "review" : verifyAction(confidence, autoAccept),
         supporting_evidence: source && source.choice !== noEvidenceKey ? source.choice : null,
+        same_subject: sameSubject,
       };
     });
 
@@ -278,6 +296,7 @@ tools.registerTool(
       model: model,
       provider,
       auto_accept: autoAccept,
+      subject_at: subjectAt,
       summary: {
         verified: results.filter((r) => r.verdict === "verified").length,
         contradicted: results.filter((r) => r.verdict === "contradicted").length,
