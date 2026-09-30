@@ -269,7 +269,12 @@ export async function askJev(
     };
     const result = await ask({ state, questions, model, signal: signal ?? new AbortController().signal }, { transport });
     if (!result.ok) {
-      if (result.code === "request_failed") throw new Error(result.message);
+      // `rate_limited`/`unavailable` ship in @jkudish/jev-agent-tools 0.1.4;
+      // the lockfile still resolves 0.1.3, whose type union lacks them, so
+      // compare through string. Harmless against 0.1.3 (the codes never
+      // occur); correct once the range resolves 0.1.4. Cast removed with the
+      // dependency bump.
+      if (result.code === "request_failed" || (result.code as string) === "rate_limited" || (result.code as string) === "unavailable") throw new Error(result.message);
       // Envelope validation cannot be projected to individual judgments.
       // A bad envelope invalidates the call's judgments, not the MCP call.
       if (!isRecord(reply?.answers) || result.code === "invalid_usage" || result.code === "invalid_model" ||
