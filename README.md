@@ -720,6 +720,10 @@ Then decide the route, feeding that answer in as evidence. The `requirements` fi
 
 <sub>Pattern credit: [@Garfielk](https://github.com/Garfielk), from the routing discussion in [#5](https://github.com/jkudish/jev-mcp/issues/5).</sub>
 
+## Inside the harness: hooks
+
+The tools judge what the model brings into the conversation. The [hook gate example](examples/hook-gate.md) runs the same judgment out of band: a `PreToolUse` hook in Claude Code, Codex, OpenCode, or pi sends each proposed tool call to one `jev_decide` call measured against your written policy, and denies the confident violations with a reason the model can act on. The harness matcher routes for free, local skip rules and size caps defer cheaply, and anything the gate cannot confidently deny falls through to the harness's own permission flow — so a Jev outage never blocks the agent. Deny thresholds are parameters, not promises.
+
 ## How the answers work
 
 Jev is TypeSafe's System One model: it returns typed answers with calibrated probability distributions, not generated text. A verify call is a Choice over supports / contradicts / says_nothing, so you see the whole distribution, not one label. A screen call is a set of yes/no probabilities. A find call is a Choice over your candidate ids plus an existence check. A rerank call is one yes/no relevance question per candidate. A compare call is a Choice over three relations, repeated independently per aspect. An extract call is a Choice over the candidates your regex already found, so the model picks a value but never writes one. A review call is four Score rubrics plus one safe-to-apply probability; a gate adds one Choice per completion claim, judged from evidence only. Code maps the answers to verdicts and actions; policy stays with you.

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Runnable deny-only coding-agent hook example, with optional human escalation and bounded input, runtime, and subprocess cleanup. Via [#52](https://github.com/jkudish/jev-mcp/pull/52) by [@Rex-Gao](https://github.com/Rex-Gao), prompted by [#51](https://github.com/jkudish/jev-mcp/issues/51).
+
 ## 0.12.0
 
 - Side-effect-free imports: the package root and `/server` export `createServer()` without starting a transport; the CLI stays unchanged. The new exports map replaces `dist/*` deep imports. Requested in [#49](https://github.com/jkudish/jev-mcp/issues/49) by [@deadczarvc](https://github.com/deadczarvc).
