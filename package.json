@@ -1,6 +1,6 @@
 {
   "name": "@jkudish/jev-mcp",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "MCP server exposing TypeSafe Jev as purpose-built judgment tools: verify claims, screen for injection, find, rerank, classify, decide, compare passages, extract fields, review patches, and gate completion claims, each with typed probabilities.",
   "type": "module",
   "license": "MIT",
@@ -11,6 +11,10 @@
   },
   "bin": {
     "jev-mcp": "dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/server.js",
+    "./server": "./dist/server.js"
   },
   "files": [
     "dist",
@@ -27,7 +31,7 @@
     "build": "tsc",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/unit.test.mjs test/mock.test.mjs test/provider.test.mjs test/typesafe-abort-regression.test.mjs test/http.test.mjs test/exa-example.test.mjs test/hook-gate.test.mjs",
+    "test": "node --test test/unit.test.mjs test/mock.test.mjs test/provider.test.mjs test/typesafe-abort-regression.test.mjs test/http.test.mjs test/exa-example.test.mjs test/server.test.mjs test/hook-gate.test.mjs",
     "test:e2e": "node --test test/e2e.test.mjs"
   },
   "keywords": [
@@ -42,7 +46,7 @@
     "semantic-search"
   ],
   "dependencies": {
-    "@jkudish/jev-agent-tools": "^0.1.0",
+    "@jkudish/jev-agent-tools": "^0.1.4",
     "@modelcontextprotocol/node": "^2.1.0",
     "@modelcontextprotocol/server": "^2.2.0",
     "@typesafe-ai/sdk": "^0.6.0",

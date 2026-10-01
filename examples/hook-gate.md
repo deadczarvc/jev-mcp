@@ -42,6 +42,10 @@ more; like any threshold, tune it against your own traffic, not a benchmark.
 
 ## Quick start
 
+Run from a source checkout with Node.js 22 or newer. The OpenCode and pi
+adapters also require `node` on the host's PATH; they do not launch the
+host application's own executable as a JavaScript runtime.
+
 ```sh
 npm ci
 # Inspect the constructed judgment without any credentials:
@@ -55,16 +59,19 @@ node examples/hook-gate.mjs --policy-file policy.md < examples/hook-gate-sample.
 `--policy` / `--policy-file` carry the policy (bounded at 2,000 characters to
 fit `jev_decide` priorities). `--ask` maps the `ask_user` escape hatch to
 `permissionDecision: "ask"` (Claude Code only — Codex reports `ask` as an
-unsupported verdict and continues the call). `--allow-threshold` opts into
-auto-allowing confidently safe calls; it is off by default because `allow`
-bypasses the harness's own permission prompt. `--timeout-ms` (default 15,000)
-bounds the judgment; on timeout the gate defers.
+unsupported verdict and continues the call). There is no auto-allow option:
+`proceed` always defers to the harness. `--block-threshold` is between 0.5
+and 1. `--timeout-ms` (default 15,000; maximum 60,000) bounds policy loading,
+stdin, connection, judgment and cleanup, with up to three additional seconds
+for subprocess termination. On timeout the gate defers. Raw stdin is capped
+at 32 KiB and complete evidence (including tool name and cwd) at 6,000
+characters; oversized inputs defer without judging a truncated action.
 
 The deny reason is shown to the model as feedback, so it names the measured
 probability, the threshold, and the first line of the policy, and asks for a
-compliant alternative. The MCP client forwards only the Jev environment it
-needs (provider, credentials, optional `JEV_MCP_MODEL`); nothing else from the
-hook's environment reaches the subprocess.
+compliant alternative. The MCP client forwards the Jev settings it needs
+(provider, credentials, optional `JEV_MCP_MODEL`), plus the SDK's standard
+safe environment. It does not forward arbitrary hook environment variables.
 
 ## Claude Code
 
@@ -91,7 +98,8 @@ hook's environment reaches the subprocess.
 
 Keep the harness `timeout` above `--timeout-ms` so the gate defers first and
 the harness never kills a hook that was about to defer anyway. `deny` reasons
-reach the model; `allow` and `ask` reasons are shown to the user.
+reach the model; optional `ask` reasons are shown to the user. Leave at least
+three seconds of cleanup margin beyond `--timeout-ms`.
 
 ## Codex
 
@@ -129,21 +137,17 @@ OpenCode plugins intercept in-process. Create
 to block:
 
 ```ts
-import { spawn } from "node:child_process"
+import { runHookGate } from "/path/to/jev-mcp/examples/hook-gate-adapter.mjs"
 
 export const JevGate = async () => {
   return {
     "tool.execute.before": async (input, output) => {
-      const payload = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: input.tool, tool_input: output.args })
-      const child = spawn(process.execPath, ["/path/to/jev-mcp/examples/hook-gate.mjs", "--policy-file", "/path/to/policy.md"])
-      let stdout = ""
-      child.stdout.on("data", (chunk) => (stdout += chunk))
-      child.stdin.end(payload)
-      const code = await new Promise((resolve) => child.on("close", resolve))
-      if (code === 0 && stdout.trim()) {
-        const verdict = JSON.parse(stdout).hookSpecificOutput
-        if (verdict?.permissionDecision === "deny") throw new Error(verdict.permissionDecisionReason)
-      }
+      const reason = await runHookGate(
+        { hook_event_name: "PreToolUse", tool_name: input.tool, tool_input: output.args },
+        ["/path/to/jev-mcp/examples/hook-gate.mjs", "--policy-file", "/path/to/policy.md"],
+      )
+      // Intentional denial stays outside the adapter's failure recovery.
+      if (reason) throw new Error(reason)
     },
   }
 }
@@ -155,25 +159,20 @@ tool calls, only built-in tools; check the current behavior on your version.
 ## pi
 
 pi extensions return `{ block, reason }` from the `tool_call` event. Create
-`~/.pi/extensions/jev-gate.ts` (or a project extension) with the same spawn
-pattern:
+`~/.pi/agent/extensions/jev-gate.ts` for global use, or
+`.pi/extensions/jev-gate.ts` in the project, with the same spawn pattern:
 
 ```ts
-import { spawn } from "node:child_process"
+import { runHookGate } from "/path/to/jev-mcp/examples/hook-gate-adapter.mjs"
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent"
 
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event) => {
-    const payload = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: event.toolName, tool_input: event.input })
-    const child = spawn(process.execPath, ["/path/to/jev-mcp/examples/hook-gate.mjs", "--policy-file", "/path/to/policy.md"])
-    let stdout = ""
-    child.stdout.on("data", (chunk) => (stdout += chunk))
-    child.stdin.end(payload)
-    await new Promise((resolve) => child.on("close", resolve))
-    if (stdout.trim()) {
-      const verdict = JSON.parse(stdout).hookSpecificOutput
-      if (verdict?.permissionDecision === "deny") return { block: true, reason: verdict.permissionDecisionReason }
-    }
+    const reason = await runHookGate(
+      { hook_event_name: "PreToolUse", tool_name: event.toolName, tool_input: event.input },
+      ["/path/to/jev-mcp/examples/hook-gate.mjs", "--policy-file", "/path/to/policy.md"],
+    )
+    if (reason) return { block: true, reason }
   })
 }
 ```
@@ -183,7 +182,9 @@ export default function (pi: ExtensionAPI) {
 A policy gate is not a security boundary: it is one judgment layer in front of
 the harness's own permission system, and a determined process can sometimes
 talk past a judge. The tool call text is untrusted input framed as facts, but
-framing is mitigation, not a guarantee.
+framing is mitigation, not a guarantee. Deferring is not approval or assurance
+of safety. The shared adapter bounds stdout and runtime, handles pipe/spawn
+and JSON errors, and ignores nonzero exits: failures return no decision.
 
 Before trusting a threshold, run a small reproducible experiment: capture real
 hook payloads (the `--dry-run` output shape), label each with your own

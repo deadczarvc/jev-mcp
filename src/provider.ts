@@ -269,7 +269,7 @@ export async function askJev(
     };
     const result = await ask({ state, questions, model, signal: signal ?? new AbortController().signal }, { transport });
     if (!result.ok) {
-      if (result.code === "request_failed") throw new Error(result.message);
+      if (result.code === "request_failed" || result.code === "rate_limited" || result.code === "unavailable") throw new Error(result.message);
       // Envelope validation cannot be projected to individual judgments.
       // A bad envelope invalidates the call's judgments, not the MCP call.
       if (!isRecord(reply?.answers) || result.code === "invalid_usage" || result.code === "invalid_model" ||

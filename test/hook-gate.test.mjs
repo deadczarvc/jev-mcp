@@ -4,9 +4,12 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { test } from "node:test";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { runHookGate } from "../examples/hook-gate-adapter.mjs";
 import {
-  parseHookPayload, payloadText, routeLocally, buildDecision, mapDecision, harnessOutput, judge,
+  parseHookPayload, payloadText, routeLocally, buildDecision, mapDecision, harnessOutput, judge, closeTransport,
   CANDIDATES, DEFAULT_BLOCK_THRESHOLD, MAX_TOOL_INPUT_CHARS,
 } from "../examples/hook-gate.mjs";
 
@@ -67,14 +70,12 @@ test("mapDecision denies only confident blocks and never fabricates", () => {
   assert.match(denied.permissionDecisionReason, /Policy: No force pushes\./);
   // Below the threshold, no verdict: the harness permission flow applies.
   assert.equal(mapDecision(rec("block", { proceed: 0.2, block: 0.7, ask_user: 0.04, investigate: 0.03, none: 0.03 }), { policy }), null);
-  // Proceed only allows when explicitly opted in.
+  // Proceed never overrides the harness permission flow.
   const proceed = rec("proceed", { proceed: 0.95, block: 0.02, ask_user: 0.01, investigate: 0.01, none: 0.01 });
   assert.equal(mapDecision(proceed, { policy }), null);
-  const allowed = mapDecision(proceed, { policy, allowThreshold: 0.85 });
-  assert.equal(allowed.permissionDecision, "allow");
-  assert.match(allowed.permissionDecisionReason, /proceed probability 0\.95/);
+  assert.equal(mapDecision(proceed, { policy, allowThreshold: 0.85 }), null);
   // ask_user needs --ask; escapes and invalid responses never decide.
-  const askUser = rec("ask_user", { proceed: 0.2, block: 0.1, ask_user: 0.6, investigate: 0.05, none: 0.05 });
+  const askUser = rec("ask_user", { proceed: 0.2, block: 0.1, ask_user: 0.6, investigate: 0.05, none: 0.05 }, { escaped: true });
   assert.equal(mapDecision(askUser, { policy }), null);
   assert.equal(mapDecision(askUser, { policy, askEnabled: true }).permissionDecision, "ask");
   assert.equal(mapDecision(rec("investigate", {}, { escaped: true }), { policy }), null);
@@ -119,7 +120,7 @@ test("judge builds one jev_decide call and maps its verdict", async () => {
 
 // Async on purpose: a synchronous spawn would block this process's event
 // loop and freeze the mock Jev server the child is talking to.
-function runHook(args, { input, env = {} } = {}) {
+function runHook(args, { input, env = {}, keepStdinOpen = false } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ["examples/hook-gate.mjs", ...args], {
       cwd: new URL("../", import.meta.url), env,
@@ -131,7 +132,8 @@ function runHook(args, { input, env = {} } = {}) {
     child.on("error", (error) => resolve({ code: 1, stdout, stderr: stderr + String(error) }));
     child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
     child.stdin.on("error", () => {});
-    child.stdin.end(input);
+    if (keepStdinOpen) child.stdin.write(input);
+    else child.stdin.end(input);
   });
 }
 
@@ -146,7 +148,7 @@ test("dry run needs no credentials and reports the constructed judgment", async 
 });
 
 test("usage errors are loud and never a silent allow", async () => {
-  for (const args of [[], ["--policy", "p", "--policy-file", "f"], ["--policy", "p", "--block-threshold", "0.2"], ["--policy", "p", "--skip", "("]]) {
+  for (const args of [[], ["--policy", "p", "--policy-file", "f"], ["--policy", "p", "--block-threshold", "0.2"], ["--policy", "p", "--block-threshold", "1.1"], ["--policy", "p", "--allow-threshold", "0.9"], ["--policy", "p", "--timeout-ms", "60001"], ["--policy", "p", "--skip", "("]]) {
     const result = await runHook(args, { input: SAMPLE, env: {} });
     assert.notEqual(result.code, 0, JSON.stringify(args));
     assert.match(result.stderr, /hook-gate:/);
@@ -172,6 +174,7 @@ async function withMockedJev(recommendation, fn) {
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
       requests.push(JSON.parse(raw));
+      if (recommendation === "hang") return;
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ answers: { recommendation: pick(recommendation, REC_KEYS) }, usage: { input_tokens: 10, output_tokens: 10 } }));
     });
@@ -220,4 +223,83 @@ test("end to end: proceed and provider failures print no verdict and stay exit 0
   assert.equal(down.code, 0);
   assert.equal(down.stdout, "");
   assert.match(down.stderr, /no decision/);
+});
+
+test("end to end: ask_user escape asks only with explicit opt-in", async () => {
+  await withMockedJev("ask_user", async (_, baseURL) => {
+    for (const enabled of [false, true]) {
+      const result = await runHook(["--policy", "p", ...(enabled ? ["--ask"] : [])], {
+        input: SAMPLE, env: { TYPESAFE_API_KEY: "test-key", TYPESAFE_BASE_URL: baseURL },
+      });
+      assert.equal(result.code, 0);
+      if (enabled) assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, "ask");
+      else assert.equal(result.stdout, "");
+    }
+  });
+});
+
+test("oversize raw input and metadata defer without credentials", async () => {
+  for (const input of ["x".repeat(32769), JSON.stringify({ tool_name: "x".repeat(7000), tool_input: {} })]) {
+    const result = await runHook(["--policy", "p"], { input });
+    assert.equal(result.code, 0);
+    assert.equal(result.stdout, "");
+  }
+});
+
+test("deadline covers unfinished stdin and a stalled provider", async () => {
+  const stdin = await runHook(["--policy", "p", "--timeout-ms", "100"], { input: "{", keepStdinOpen: true });
+  assert.equal(stdin.code, 0);
+  assert.equal(stdin.stdout, "");
+  await withMockedJev("hang", async (_, baseURL) => {
+    const result = await runHook(["--policy", "p", "--timeout-ms", "1000"], {
+      input: SAMPLE, env: { TYPESAFE_API_KEY: "test-key", TYPESAFE_BASE_URL: baseURL },
+    });
+    assert.equal(result.code, 0);
+    assert.equal(result.stdout, "");
+  });
+});
+
+test("native adapter accepts only valid successful denies and bounds failures", async () => {
+  const deny = JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "blocked" } });
+  const output = (text, exit = 0) => ["-e", `process.stdin.resume();process.stdin.on('end',()=>{process.stdout.write(${JSON.stringify(text)});process.exit(${exit})})`];
+  assert.equal(await runHookGate({}, output(deny)), "blocked");
+  const execPath = process.execPath;
+  try {
+    // A compiled host's execPath is not a Node runtime.
+    process.execPath = "/no/such/opencode-cli";
+    assert.equal(await runHookGate({}, output(deny)), "blocked");
+  } finally {
+    process.execPath = execPath;
+  }
+  for (const args of [output(deny, 1), output("bad json"), output("x".repeat(17000)), ["/no/such/script"]]) {
+    assert.equal(await runHookGate({}, args), null);
+  }
+  assert.equal(await runHookGate({}, ["-e", "setInterval(()=>{},1000)"], { timeoutMs: 100 }), null);
+});
+
+test("cleanup kills an owned server that ignores EOF and SIGTERM within its margin", async () => {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["-e", "process.on('SIGTERM',()=>{});process.stdin.resume();setInterval(()=>{},1000);process.stderr.write('ready\\n')"],
+    stderr: "pipe",
+  });
+  const ready = once(transport.stderr, "data");
+  await transport.start();
+  await ready;
+  const pid = transport.pid;
+  assert.ok(pid);
+  const started = Date.now();
+  const cleanup = closeTransport(transport);
+  // A deadline during ordinary cleanup must join the same promise, not
+  // call SDK close again after it has cleared its owned process reference.
+  await Promise.all([cleanup, new Promise(resolve => setTimeout(resolve, 100)).then(() => cleanup)]);
+  assert.ok(Date.now() - started < 3500);
+  for (let i = 0; i < 50; i++) {
+    try { process.kill(pid, 0); } catch (error) {
+      assert.equal(error.code, "ESRCH");
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.fail("server survived bounded cleanup");
 });

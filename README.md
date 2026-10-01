@@ -143,7 +143,17 @@ It listens on `PORT` (default `8080`) and serves MCP at `/mcp`, with a health ch
 claude mcp add --transport http jev https://jev.example.com/mcp --header "Authorization: Bearer $JEV_MCP_AUTH_TOKEN"
 ```
 
+Some clients can only be configured with a URL and cannot send headers, such as claude.ai custom connectors. For those, set `JEV_MCP_PATH_TOKEN=1` and give the client `https://jev.example.com/mcp/<token>`; the segment is compared raw, in constant time, against `JEV_MCP_AUTH_TOKEN`, and the server refuses to start unless the token is URL-safe (letters, digits, `.` `_` `-` `~`). Use a dedicated high-entropy token for this form (for example `openssl rand -hex 32`), serve it over HTTPS only, and treat the whole URL as the secret: redact full paths from proxy and access logs, keep the URL out of shared configs, and avoid redirects of it. Rotate the token if it escapes. It is off by default because a URL is easier to leak than a header. The header form keeps working alongside it.
+
 The server itself speaks plain HTTP: terminate TLS at a reverse proxy or load balancer before exposing it beyond loopback, and put connection limits and request rate limits at that ingress. The process bounds admitted `/mcp` requests (`JEV_MCP_MAX_CONCURRENCY`, default 16; excess shed with `429`) and caps request bodies at 4 MiB, but it does not limit sockets waiting to finish headers or repeatedly rejected requests. The tool list is static: the server advertises no `listChanged` capability and refuses `subscriptions/listen` requests, so an idle listener cannot hold one of the concurrency slots. Clients that never open a listener, the common case, see no difference.
+
+### Embedding
+
+The `jev-mcp` bin boots a transport when run; importing the package never does. To run the tools in-process (an agent hook, a larger server, a test harness):
+
+- `import { createServer } from "@jkudish/jev-mcp"` — side-effect-free: it registers the tools and exports a `createServer()` that returns a fresh `McpServer` wired with all twelve, without starting stdio or HTTP. Connect your own transport to it; the stateless HTTP path in this package uses the same factory. `@jkudish/jev-mcp/server` is an explicit alias for the same entry.
+- `MODEL` is exported alongside it, resolved from `JEV_MCP_MODEL` at import time (default `jev-latest`), so embedders report the same model the CLI serves.
+- The package now declares `exports`, so deep imports like `@jkudish/jev-mcp/dist/index.js` no longer resolve. Before the exports map, importing that path booted a transport inside the importer's process — the trap `/server` and the safe root entry replace. `dist/index.js` remains the bin and still boots when executed.
 
 ### Agent skill
 

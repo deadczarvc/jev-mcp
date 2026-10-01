@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Runnable deny-only coding-agent hook example, with optional human escalation and bounded input, runtime, and subprocess cleanup. Via [#52](https://github.com/jkudish/jev-mcp/pull/52) by [@Rex-Gao](https://github.com/Rex-Gao), prompted by [#51](https://github.com/jkudish/jev-mcp/issues/51).
+
+## 0.12.0
+
+- Side-effect-free imports: the package root and `/server` export `createServer()` without starting a transport; the CLI stays unchanged. The new exports map replaces `dist/*` deep imports. Requested in [#49](https://github.com/jkudish/jev-mcp/issues/49) by [@deadczarvc](https://github.com/deadczarvc).
+- Opt-in `/mcp/<token>` authentication for HTTP clients that cannot send bearer headers, with URL-safe token validation and token stripping after authentication. Via [#50](https://github.com/jkudish/jev-mcp/pull/50).
+- TypeSafe requests retry transient HTTP failures, honor bounded `Retry-After`, and report the effective model through `jev-agent-tools` 0.1.4; exhausted rate limits and server failures remain tool errors rather than invalid judgments. Reported in [jev-agent-tools#5](https://github.com/jkudish/jev-agent-tools/issues/5) by [@deadczarvc](https://github.com/deadczarvc).
+
 ## 0.11.0
 
 - New `jev_audit` tool: a max-gated failure-mode battery (hallucinated, off-target, incomplete, wrong format) plus an omission check, auditing extracted values against their source before they're trusted. Via [#48](https://github.com/jkudish/jev-mcp/pull/48) by Rex-Gao, prompted by [#45](https://github.com/jkudish/jev-mcp/issues/45).
