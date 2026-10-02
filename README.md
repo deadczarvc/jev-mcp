@@ -204,7 +204,7 @@ A malformed or missing relation answer fails closed per claim:
 {
   "id": "claim0", "claim": "The claim being checked",
   "verdict": "unknown", "probabilities": null, "confidence": null,
-  "status": "invalid_response", "action": "review", "supporting_evidence": null
+  "status": "invalid_response", "action": "review", "supporting_evidence": null, "same_subject": null
 }
 ```
 
@@ -213,6 +213,10 @@ A malformed or missing relation answer fails closed per claim:
 - Missing or null confidence stays `null` and requires `review`, even with `auto_accept: 0`. Non-number, non-finite, or out-of-range confidence invalidates the claim and is returned as `null`; numeric zero is valid.
 - With multiple evidence items, each claim also gets the id of the evidence it rests on. These source answers are optional auxiliary information; missing sources yield `supporting_evidence: null` without invalidating a valid relation. A present source must be a well-formed choice over the evidence ids plus `none`; anything else yields `null`.
 - `auto_accept` (default `0.8`) is the confidence at or above which a verdict stands. Lower-confidence verdicts come back flagged `review`.
+- Each claim also gets a subject question: does the evidence report on that claim's own check, run, file, or object? `same_subject` carries the probability. This follows TypeSafe's [decomposition pattern](https://docs.typesafe.ai/primitives): separate judgments, composed in code.
+- A contradiction stands only when `same_subject` reaches `subject_at` (default `0.5`). Below it, the verdict is `unsupported`, the original relation remains visible as `relation_verdict: "contradicted"`, and the claim requires `review`.
+- A missing or malformed subject answer yields `same_subject: null`. A contradiction keeps its relation verdict but requires `review`, regardless of `auto_accept`; verified and unsupported relations retain their confidence-based routing.
+- Subject-aware verification applies to `jev_verify`, not `jev_gate`. It adds one probability question per claim, not another API request. The replay figures in [#53](https://github.com/jkudish/jev-mcp/issues/53) are the contributor's private experiment, not an independently reproduced accuracy benchmark.
 - For quote-level citation checks, match quotes against the source in code first and send only the surviving claims. See the [citation-check cookbook](https://docs.typesafe.ai/cookbooks/citation_check).
 
 ### jev_screen

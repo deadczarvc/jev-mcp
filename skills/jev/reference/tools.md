@@ -15,10 +15,11 @@ Screen text before it enters agent context: prompt injection, substance, and tas
 
 Test claims against supplied evidence.
 
-- Input: `claims[]`; `evidence` (a single document string or evidence items); optional `auto_accept` (default 0.8).
+- Input: `claims[]`; `evidence` (a single document string or evidence items); optional `auto_accept` (default 0.8) and `subject_at` (default 0.5).
 - Output per claim: `verdict` `verified` | `contradicted` | `unsupported`, `probabilities` over `supports` / `contradicts` / `says_nothing`, `confidence`, `action` `auto` | `review`, and `supporting_evidence` (which evidence item the claim rests on, when several were supplied).
 - `says_nothing` maps to `unsupported`: silent evidence is not support.
 - `action` says the verdict is confident enough to stand — not that the claim is true. A confident `contradicted` is also `auto`: act on the contradiction, do not ship the claim.
+- Contradictions require `same_subject` ≥ `subject_at`. Below it, `verdict` becomes `unsupported`, `relation_verdict` preserves `contradicted`, and `action` is `review`. Missing or malformed subject answers yield `same_subject: null` and require review for contradictions. This subject check applies to `jev_verify`, not `jev_gate`.
 - Fail-closed: a malformed relation returns `verdict: unknown` with `status: invalid_response` — protocol failure, distinct from a real verdict.
 
 ## jev_noul

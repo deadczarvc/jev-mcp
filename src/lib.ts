@@ -67,6 +67,17 @@ export const RELATION_TO_VERDICT: Record<string, string> = {
   says_nothing: "unsupported",
 };
 
+/**
+ * jev_verify decomposition (docs.typesafe.ai/primitives: split a judgment into questions, combine in code): besides
+ * the relation, each claim gets "does the evidence report on this claim's own subject?". A contradiction stands only
+ * at or above this probability; below it the evidence is about something else and says nothing about the claim.
+ */
+export const DEFAULT_SUBJECT_AT = 0.5;
+export const SUBJECT_CRITERIA = {
+  true: "An evidence item reports on exactly what the claim asserts (the same check, run, file, object, or number)",
+  false: "The evidence is silent about it, or reports only on a different check, process, run, or object",
+};
+
 /** Does this verdict stand on its own, or should a human confirm it? */
 export function verifyAction(confidence: number, autoAccept: number): "auto" | "review" {
   return confidence >= autoAccept ? "auto" : "review";

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `jev_verify`: contradictions now require evidence about the claim's own subject. Off-subject contradictions become `unsupported` and require review; missing subject judgments also require review. Via [#54](https://github.com/jkudish/jev-mcp/pull/54) by [@deadczarvc](https://github.com/deadczarvc), prompted by [#53](https://github.com/jkudish/jev-mcp/issues/53).
 - Runnable deny-only coding-agent hook example, with optional human escalation and bounded input, runtime, and subprocess cleanup. Via [#52](https://github.com/jkudish/jev-mcp/pull/52) by [@Rex-Gao](https://github.com/Rex-Gao), prompted by [#51](https://github.com/jkudish/jev-mcp/issues/51).
 
 ## 0.12.0
