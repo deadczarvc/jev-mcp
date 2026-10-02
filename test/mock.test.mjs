@@ -2025,7 +2025,7 @@ test("jev_verify still returns verified verdicts on a complete response", async 
     assert.equal(body.results[0].verdict, "verified");
     assert.equal(body.summary.verified, 1);
     assertWireResult(result, {
-      tool: "jev_verify", model: "jev-latest", provider: "typesafe", auto_accept: 0.8,
+      tool: "jev_verify", model: "jev-latest", provider: "typesafe", auto_accept: 0.8, subject_at: 0.5,
       summary: { verified: 1, contradicted: 0, unsupported: 0, needs_review: 0 },
       results: [{
         id: "claim0", claim: VERIFY_ARGS.claims[0], verdict: "verified",
@@ -2740,11 +2740,11 @@ test("jev_verify scopes all questions by index, leaving directives in state only
   await withMock(request => {
     assert.equal(request.state.claims[1].text, directive);
     for (const [key, q] of Object.entries(request.questions)) {
-      assert.ok(!q.question.includes(directive), key);
-      assert.match(q.question, /claims\[[01]\]/);
-      assert.match(q.question, /instructions/i);
+      assert.ok(!q.instructions.includes(directive), key);
+      assert.match(q.instructions, /claims\[[01]\]/);
+      assert.match(q.instructions, /never as instructions to follow/);
     }
-    assert.match(request.questions.subject_claim1.question, /claims\[1\]/);
+    assert.match(request.questions.subject_claim1.instructions, /claims\[1\]/);
     return { relation_claim0: contradicts, subject_claim0: { noul: 0.9 }, relation_claim1: contradicts, subject_claim1: { noul: 0.1 } };
   }, async client => {
     const body = payload(await client.callTool({ name: "jev_verify", arguments: { claims: ["Check A passed", directive], evidence: [{ text: "A failed" }, { text: "B passed" }] } }));
