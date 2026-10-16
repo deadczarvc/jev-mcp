@@ -1,0 +1,65 @@
+From f0362301fb5302bb5d88763df7d9c932cdbe7244 Mon Sep 17 00:00:00 2001
+From: Mikhail Nemerov <34755036+deadczarvc@users.noreply.github.com>
+Date: Thu, 1 Oct 2026 15:13:28 +0300
+Subject: [PATCH] exp(jev_verify): carve-out question (negative, local only)
+
+JEV_VERIFY_EXP=1 adds carve_<id>: another sentence of the reply or the author's
+note sets the opposing result apart. On 23 full-input samples it removed 1 of
+3 false blocks, mutual information with the label 0.001 bit; kept for the
+record, not for upstream (session-tracks/jev-pid-20260930/r5/REPORT-v4.md).
+---
+ src/index.ts | 31 +++++++++++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/src/index.ts b/src/index.ts
+index f6f82c0..7bdb0b5 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -235,6 +235,30 @@ tools.registerTool(
+         `The evidence contains the result of the very check, run, file, or object that claim \`${claim.id}\` (${claim.text}) is about`,
+         SUBJECT_CRITERIA,
+       );
++      if (process.env.JEV_VERIFY_EXP === "1") {
++        // EXPERIMENT (local): scope and supersession questions for the v4 fusion eval.
++        questions[`scope_${claim.id}`] = noul(
++          `A result in the evidence that goes against claim \`${claim.id}\` (${claim.text}) falls inside what the claim covers, including its quantifiers and owner words such as "all", "my", "these", or "after the fix"`,
++          {
++            true: "The opposing result is about something the claim covers",
++            false: "There is no opposing result, or it is about items the claim does not cover (someone else's, a different set, an earlier state)",
++          },
++        );
++        questions[`superseded_${claim.id}`] = noul(
++          `A later evidence item replaces the evidence that goes against claim \`${claim.id}\` (${claim.text}) on the same subject, for example a rerun after a fix`,
++          {
++            true: "A later item on the same subject reports a different, current result",
++            false: "Nothing later replaces it, or there is no opposing evidence",
++          },
++        );
++        questions[`carve_${claim.id}`] = noul(
++          `Another entry in claims (all claims are sentences of one reply by the same author), or a note by that author in the evidence, already names the result that goes against claim \`${claim.id}\` (${claim.text}) and sets it apart from this claim, as someone else's work, a different check, or a stated exception, so that both can be true together`,
++          {
++            true: "The opposing result is named elsewhere and set apart from this claim; read together, this claim still holds",
++            false: "There is no opposing result, nothing else names it, or the reply names it and this claim still asserts the opposite about it",
++          },
++        );
++      }
+       if (evidence.length > 1) {
+         const criteria: Record<string, string | null> = Object.fromEntries(evidence.map((e) => [e.id, null]));
+         criteria[noEvidenceKey] = "No single evidence item contains the content the claim depends on";
+@@ -295,6 +319,13 @@ tools.registerTool(
+         action: confidence === null || offSubject ? "review" : verifyAction(confidence, autoAccept),
+         supporting_evidence: source && source.choice !== noEvidenceKey ? source.choice : null,
+         same_subject: sameSubject,
++        ...(process.env.JEV_VERIFY_EXP === "1"
++          ? {
++              in_scope: validateNoulAnswer(answers[`scope_${claim.id}`]),
++              superseded: validateNoulAnswer(answers[`superseded_${claim.id}`]),
++              carved_out: validateNoulAnswer(answers[`carve_${claim.id}`]),
++            }
++          : {}),
+       };
+     });
+ 
+-- 
+2.56.0.windows.2
+
